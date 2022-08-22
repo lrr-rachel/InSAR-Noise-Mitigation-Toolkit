@@ -269,7 +269,7 @@ def resizeimage(path, width, height):
             f, e = os.path.splitext(path+'/'+item)
             imResize = im.resize((width,height), Image.ANTIALIAS)
             imResize.save(f + '.png', 'PNG', quality=90)
-            print('image resize')
+            # print('image resize')
 # =====================================================================
 
 # resize input image size
@@ -367,7 +367,7 @@ for epoch in range(num_epochs+1):
                     optimizer.step()
                 # statistics
                 running_loss += loss.item() * inputs.size(0)
-                print('running loss:',running_loss)
+                # print('running loss:',running_loss)
 
             epoch_loss = running_loss / len(train_data)
             train_graph.append(epoch_loss)
