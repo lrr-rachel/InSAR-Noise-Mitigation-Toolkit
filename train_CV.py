@@ -22,14 +22,14 @@ from sklearn.model_selection import KFold
 
 
 parser = argparse.ArgumentParser(description='Main Unet')
-parser.add_argument('--root_distorted', type=str, default='H:/VolcanicUnrest/Atmosphere/synthesised_patches/set1/unwrap/DST_png/', help='train and test datasets')
-parser.add_argument('--root_restored', type=str, default='H:/VolcanicUnrest/Atmosphere/synthesised_patches/set1/unwrap/D_png/', help='save output images')
-parser.add_argument('--resultDir', type=str, default='results_cv0', help='save output images')
+parser.add_argument('--root_distorted', type=str, default='../datasets/DST_png/', help='train and test datasets')
+parser.add_argument('--root_restored', type=str, default='../datasets/D_png/', help='save output images')
+parser.add_argument('--resultDir', type=str, default='results_cv0_epoch10', help='save output images')
 parser.add_argument('--unetdepth', type=int, default=5, metavar='N',  help='number of epochs to train (default: 10)')
 parser.add_argument('--numframes', type=int, default=1, metavar='N',  help='number of epochs to train (default: 10)')
 parser.add_argument('--cropsize', type=int, default=224)
 parser.add_argument('--savemodelname', type=str, default='model')
-parser.add_argument('--maxepoch', type=int, default=150)
+parser.add_argument('--maxepoch', type=int, default=100)
 parser.add_argument('--NoNorm', action='store_false', help='Run test only')
 parser.add_argument('--deform', action='store_true', help='Run test only')
 parser.add_argument('--network', type=str, default='unet')
@@ -128,20 +128,20 @@ class Dataset(Dataset):
             if self.numframes == 1:
                 groundtruth = io.imread(os.path.join(self.root_restored,subname[-1]),as_gray=True)
                 # print("[input-1] Ground Truth:",subname[-1]) 
-            else:
-                if curf-halfcurf<=1:
-                    rootrestored = os.path.abspath(self.filesnames[self.numframes-1])
-                    groundtruth = io.imread(rootrestored,as_gray=True)
-                    # print("[input: multiple] Read first GroundTruth:",rootrestored)
-                elif curf+halfcurf>=totalframes:
-                    rootrestored = os.path.abspath(self.filesnames[totalframes-1])
-                    groundtruth = io.imread(rootrestored,as_gray=True)
-                    # print("[input: multiple] Read first GroundTruth:",rootrestored)
-                else:
-                    gt = (curf-halfcurf+1-(self.numframes%2)) + self.numframes-2
-                    rootrestored = os.path.abspath(self.filesnames[gt])
-                    groundtruth = io.imread(rootrestored,as_gray=True)
-                    # print("[input: multiple] Read first GroundTruth:",rootrestored)
+            # else:
+            #     if curf-halfcurf<=1:
+            #         rootrestored = os.path.abspath(self.filesnames[self.numframes-1])
+            #         groundtruth = io.imread(rootrestored,as_gray=True)
+            #         # print("[input: multiple] Read first GroundTruth:",rootrestored)
+            #     elif curf+halfcurf>=totalframes:
+            #         rootrestored = os.path.abspath(self.filesnames[totalframes-1])
+            #         groundtruth = io.imread(rootrestored,as_gray=True)
+            #         # print("[input: multiple] Read first GroundTruth:",rootrestored)
+            #     else:
+            #         gt = (curf-halfcurf+1-(self.numframes%2)) + self.numframes-2
+            #         rootrestored = os.path.abspath(self.filesnames[gt])
+            #         groundtruth = io.imread(rootrestored,as_gray=True)
+            #         # print("[input: multiple] Read first GroundTruth:",rootrestored)
         groundtruth = groundtruth.astype('float32')
         groundtruth = groundtruth/255.
         sample = {'image': image, 'groundtruth': groundtruth}
@@ -216,7 +216,7 @@ def readimage(filename, root_distorted, numframes=1, network='unet'):
     # read distorted image
     temp = io.imread(filename,as_gray=True)
     temp = temp.astype('float32')
-    temp = temp[1: 225, 1: 225]
+    # temp = temp[1: 225, 1: 225]
     image = temp/255.
     image = np.expand_dims(image, axis=2)
     image = image.transpose((2, 0, 1))
@@ -354,10 +354,53 @@ for epoch in range(num_epochs+1):
             val_loss = validate_loss / len(val_data)
             val_graph.append(val_loss)
             print('[Epoch] ' + str(epoch),':' + '[Val Loss] ' + str(val_loss))
-            # print('\n')
+
+
+        # save output_val to 10 images to see when it's wrapped and compare with gt
         if (epoch % 10) == 0:
             torch.save(model.state_dict(), os.path.join(resultDir, savemodelname + '_ep'+str(epoch)+'.pth.tar'))
-            # save output_val to 10 images to see when it's wrapped and compare with gt
+            filesnames = glob.glob(os.path.join(root_distorted,'*.png'))
+            save_dir = os.path.join(resultDir,'epoch '+str(epoch))
+            if not os.path.exists(save_dir):
+                os.mkdir(save_dir)
+
+            #save outputs (training outputs)
+            resultDirTrain = os.path.join(save_dir,savemodelname+'_train')
+            if not os.path.exists(resultDirTrain):
+                os.mkdir(resultDirTrain)
+            model = model.to(device)
+            with torch.no_grad():
+                for i in range(len(train_data[:10])):
+                    curfile = filesnames[train_data[i]]
+                    inputs = readimage(curfile, root_distorted, numframes, network=network)
+                    subname = curfile.split("\\")
+                    inputs = inputs.to(device)
+                    outputs = model(inputs)
+                    outputs = outputs.squeeze(0)
+                    outputs = outputs.cpu().numpy() 
+                    outputs = outputs.transpose((1, 2, 0))
+                    outputs = (outputs*0.5 + 0.5)*255
+                    io.imsave(os.path.join(resultDirTrain, subname[-1]), outputs.astype(np.uint8))
+
+            # save outputs_val 
+            resultDirVal = os.path.join(save_dir,savemodelname+'_val')
+            if not os.path.exists(resultDirVal):
+                os.mkdir(resultDirVal)
+            model.eval()
+            model = model.to(device)
+            with torch.no_grad():
+                for i in range(len(val_data[:10])):
+                    curfile = filesnames[val_data[i]]
+                    inputs_val = readimage(curfile, root_distorted, numframes, network=network)
+                    subname = curfile.split("\\")
+                    inputs_val = inputs_val.to(device)
+                    outputs_val = model(inputs_val)
+                    outputs_val = outputs_val.squeeze(0)
+                    outputs_val = outputs_val.cpu().numpy() 
+                    outputs_val = outputs_val.transpose((1, 2, 0))
+                    outputs_val = (outputs_val*0.5 + 0.5)*255
+                    io.imsave(os.path.join(resultDirVal, subname[-1]), outputs_val.astype(np.uint8))
+
         # deep copy the model
         if (epoch>10) and (epoch_loss < best_acc):
             best_acc = epoch_loss
@@ -367,7 +410,7 @@ for epoch in range(num_epochs+1):
 plt.figure(figsize=(10,5))
 plt.title('Training and Validate Loss')
 plt.plot(train_graph,label="training loss")
-#plt.plot(val_graph,label="validate loss")
+plt.plot(val_graph,label="validate loss")
 plt.xlabel("Epoch")
 plt.ylabel("Loss")
 plt.legend()
@@ -387,18 +430,18 @@ plt.show()
 
 # # =====================================================================
 # filesnames = glob.glob(os.path.join(root_distorted,'*.png'))
-for i in range(len(filesnames[:10])):
-     curfile = filesnames[i]
-     inputs = readimage(curfile, root_distorted, numframes, network=network)
-     subname = curfile.split("\\")
-     inputs = inputs.to(device)
-     with torch.no_grad():
-         output = model(inputs)
-         output = output.squeeze(0)
-         output = output.cpu().numpy() 
-         output = output.transpose((1, 2, 0))
-         output = (output*0.5 + 0.5)*255
-         io.imsave(os.path.join(resultDirOutImg, subname[-1]), output.astype(np.uint8))
+# for i in range(len(filesnames[:10])):
+#      curfile = filesnames[i]
+#      inputs = readimage(curfile, root_distorted, numframes, network=network)
+#      subname = curfile.split("\\")
+#      inputs = inputs.to(device)
+#      with torch.no_grad():
+#          output = model(inputs)
+#          output = output.squeeze(0)
+#          output = output.cpu().numpy() 
+#          output = output.transpose((1, 2, 0))
+#          output = (output*0.5 + 0.5)*255
+#          io.imsave(os.path.join(resultDirOutImg, subname[-1]), output.astype(np.uint8))
 
 
 
