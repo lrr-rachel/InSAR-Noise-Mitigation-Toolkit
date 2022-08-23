@@ -214,34 +214,11 @@ class RandomFlip(object):
 
 def readimage(filename, root_distorted, numframes=1, network='unet'):
     # read distorted image
-    subname = filename.split("\\")
-    curf = int(subname[-1][:-4])
-    halfcurf = int(numframes/2)
-    if curf==1:
-        rangef = range(1,numframes+1)
-    elif curf==len(filesnames):
-        rangef = range(curf-int(numframes/2)-1, curf+1)
-    else:
-        rangef = range(curf-int(numframes/2), curf+int(numframes/2)+1)
-    if curf-halfcurf<=1:
-        rangef = range(1,numframes+1)
-    elif curf+halfcurf>=len(filesnames):
-        if numframes==1:
-            rangef = range(curf, curf+1)
-        else:
-            rangef = range(len(filesnames)-numframes+1, len(filesnames)+1)
-    else:
-        rangef = range(curf-halfcurf, curf+halfcurf+1)
-    dig = len(subname[-1])-4
-    nameformat = '%0'+str(dig)+'d'
-    for f in rangef:
-        # read distorted image
-        temp = io.imread(os.path.join(root_distorted,nameformat % f + ".png"),as_gray=True)
-        temp = temp.astype('float32')
-        if f==rangef[0]:
-            image = temp/255.
-        else:
-            image = np.append(image,temp/255.,axis=2)
+    temp = io.imread(filename,as_gray=True)
+    temp = temp.astype('float32')
+    temp = temp[1: 225, 1: 225]
+    image = temp/255.
+    image = np.expand_dims(image, axis=2)
     image = image.transpose((2, 0, 1))
     image = torch.from_numpy(image)
     vallist = [0.5]*image.shape[0]
@@ -378,8 +355,9 @@ for epoch in range(num_epochs+1):
             val_graph.append(val_loss)
             print('[Epoch] ' + str(epoch),':' + '[Val Loss] ' + str(val_loss))
             # print('\n')
-        if (epoch % 50) == 0:
+        if (epoch % 10) == 0:
             torch.save(model.state_dict(), os.path.join(resultDir, savemodelname + '_ep'+str(epoch)+'.pth.tar'))
+            # save output_val to 10 images to see when it's wrapped and compare with gt
         # deep copy the model
         if (epoch>10) and (epoch_loss < best_acc):
             best_acc = epoch_loss
@@ -409,18 +387,18 @@ plt.show()
 
 # # =====================================================================
 # filesnames = glob.glob(os.path.join(root_distorted,'*.png'))
-# for i in range(len(filesnames)):
-#     curfile = filesnames[i]
-#     inputs = readimage(curfile, root_distorted, numframes, network=network)
-#     subname = curfile.split("\\")
-#     inputs = inputs.to(device)
-#     with torch.no_grad():
-#         output = model(inputs)
-#         output = output.squeeze(0)
-#         output = output.cpu().numpy() 
-#         output = output.transpose((1, 2, 0))
-#         output = (output*0.5 + 0.5)*255
-#         io.imsave(os.path.join(resultDirOutImg, subname[-1]), output.astype(np.uint8))
+for i in range(len(filesnames[:10])):
+     curfile = filesnames[i]
+     inputs = readimage(curfile, root_distorted, numframes, network=network)
+     subname = curfile.split("\\")
+     inputs = inputs.to(device)
+     with torch.no_grad():
+         output = model(inputs)
+         output = output.squeeze(0)
+         output = output.cpu().numpy() 
+         output = output.transpose((1, 2, 0))
+         output = (output*0.5 + 0.5)*255
+         io.imsave(os.path.join(resultDirOutImg, subname[-1]), output.astype(np.uint8))
 
 
 
