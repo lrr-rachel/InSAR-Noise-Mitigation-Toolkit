@@ -22,8 +22,8 @@ from sklearn.model_selection import KFold
 
 
 parser = argparse.ArgumentParser(description='Main Unet')
-parser.add_argument('--root_distorted', type=str, default='/user/work/gf19473/datasets/DST_png/', help='train and test datasets')
-parser.add_argument('--root_restored', type=str, default='/user/work/gf19473/datasets/D_png/', help='save output images')
+parser.add_argument('--root_distorted', type=str, default='H:/VolcanicUnrest/Atmosphere/synthesised_patches/set1/unwrap/DST_png/', help='train and test datasets')
+parser.add_argument('--root_restored', type=str, default='H:/VolcanicUnrest/Atmosphere/synthesised_patches/set1/unwrap/D_png/', help='save output images')
 parser.add_argument('--resultDir', type=str, default='results_cv0', help='save output images')
 parser.add_argument('--unetdepth', type=int, default=5, metavar='N',  help='number of epochs to train (default: 10)')
 parser.add_argument('--numframes', type=int, default=1, metavar='N',  help='number of epochs to train (default: 10)')
@@ -73,7 +73,7 @@ class Dataset(Dataset):
         self.root_restored = root_restored
         self.transform = transform
         if len(root_restored)==0:
-            self.filesnames = glob.glob(os.path.join(root_distorted,'**_restored\*.png'))
+            self.filesnames = glob.glob(os.path.join(root_distorted,'**_restored/*.png'))
         else:
             self.filesnames = glob.glob(os.path.join(root_restored,'*.png'))
         self.numframes = numframes
@@ -83,9 +83,8 @@ class Dataset(Dataset):
         if torch.is_tensor(idx):
             idx = idx.tolist()
         subname = self.filesnames[idx].split("\\")
-        curf = int(subname[-1][:-4])
-
-        halfcurf = int(self.numframes/2)
+        #curf = int(subname[-1][:-4])
+        #halfcurf = int(self.numframes/2)
         if len(self.root_restored)==0:
             totalframes = len(glob.glob(os.path.join(os.path.dirname(os.path.abspath(self.filesnames[idx])), '*.png')))
         else:
@@ -94,37 +93,34 @@ class Dataset(Dataset):
         # print("[CURF]:",curf)
         # print("halfcurf: int(self.numframes/2) ->",halfcurf)
         # print(curf)
-
-        if curf-halfcurf<=1:
-            rangef = range(1,self.numframes+1)
-        elif curf+halfcurf>=totalframes:
-            if self.numframes==1:
-                rangef = range(curf, curf+1)
-            else:
-                rangef = range(totalframes-self.numframes+1, totalframes+1)
-        else:
-            rangef = range(curf-halfcurf + 1 - (self.numframes % 2), curf+halfcurf+1)
+        #if curf-halfcurf<=1:
+        #    rangef = range(1,self.numframes+1)
+        #elif curf+halfcurf>=totalframes:
+        #    if self.numframes==1:
+        #        rangef = range(curf, curf+1)
+        #    else:
+        #        rangef = range(totalframes-self.numframes+1, totalframes+1)
+        #else:
+        #    rangef = range(curf-halfcurf + 1 - (self.numframes % 2), curf+halfcurf+1)
         # print("rangef:",rangef)
-
         # print(rangef)
-        dig = len(subname[-1])-4
-        nameformat = '%0'+str(dig)+'d'
+        #dig = len(subname[-1])-4
+        #nameformat = '%0'+str(dig)+'d'
         # print("nameformat:",nameformat)
         # print('rangef '+str(rangef))
-        for f in rangef:
-            # read distorted image
-            rootdistorted = os.path.join(os.path.dirname(os.path.abspath(self.filesnames[idx])),nameformat % f + ".png")
-            rootdistorted = rootdistorted.replace('_restored', '_distorted')
-            # print('Read Distorted: '+rootdistorted)
-            temp = io.imread(rootdistorted,as_gray=True)
-            temp = temp.astype('float32')
-            if f==rangef[0]:
-                image = temp/255.
-            else:
-                image = np.append(image,temp/255.,axis=2)
+        #for f in rangef:
+        # read distorted image
+        rootdistorted = self.filesnames[idx]
+        rootdistorted = rootdistorted.replace('_restored', '_distorted')
+        # print('Read Distorted: '+rootdistorted)
+        temp = io.imread(rootdistorted,as_gray=True)
+        temp = temp.astype('float32')
+        #if f==rangef[0]:
+        image = temp/255.
+        #else:
+        #    image = np.append(image,temp/255.,axis=2)
         # read corresponding clean image
         # print("restored:",self.root_restored)
-
         if len(self.root_restored)==0:
             rootrestored = self.filesnames[idx]
             groundtruth = io.imread(rootrestored,as_gray=True)        
@@ -146,7 +142,6 @@ class Dataset(Dataset):
                     rootrestored = os.path.abspath(self.filesnames[gt])
                     groundtruth = io.imread(rootrestored,as_gray=True)
                     # print("[input: multiple] Read first GroundTruth:",rootrestored)
-
         groundtruth = groundtruth.astype('float32')
         groundtruth = groundtruth/255.
         sample = {'image': image, 'groundtruth': groundtruth}
@@ -190,16 +185,13 @@ class ToTensor(object):
         # swap color axis because
         # numpy image: H x W x C
         # torch image: C x H x W
-
         image = np.expand_dims(image, axis=2)
         groundtruth = np.expand_dims(groundtruth, axis=2)
-     
         image = image.transpose((2, 0, 1))
         groundtruth = groundtruth.transpose((2, 0, 1))
         image = torch.from_numpy(image.copy())
         groundtruth = torch.from_numpy(groundtruth.copy())
         # image
-    
         vallist = [0.5]*image.shape[0]
         normmid = transforms.Normalize(vallist, vallist)
         image = normmid(image)
@@ -250,10 +242,8 @@ def readimage(filename, root_distorted, numframes=1, network='unet'):
             image = temp/255.
         else:
             image = np.append(image,temp/255.,axis=2)
-
     image = image.transpose((2, 0, 1))
     image = torch.from_numpy(image)
-
     vallist = [0.5]*image.shape[0]
     normmid = transforms.Normalize(vallist, vallist)
     image = normmid(image)
@@ -296,6 +286,7 @@ print("[INFO] Generating UNet")
 model = UnetGenerator(input_nc=numframes, output_nc=1, num_downs=unetdepth, deformable=deform, norm_layer=NoNorm)
 if retrain:
     model.load_state_dict(torch.load(os.path.join(resultDir,savemodelname+'.pth.tar'),map_location=device))
+
 model = model.to(device)
 
 criterion = nn.MSELoss()
@@ -346,9 +337,8 @@ for epoch in range(num_epochs+1):
         validate_loss = 0.0
         validate_corrects = 0
         if phase == 'train':
-            print('[INFO] Training Phase...')
-            model.train()  # Set model to training mode
-            
+            # print('[INFO] Training Phase...')
+            model = model.train()  # Set model to training mode
             # Iterate over train data.
             for i in range(len(train_data)):
                 sample = dataset[train_data[i]]
@@ -368,47 +358,43 @@ for epoch in range(num_epochs+1):
                 # statistics
                 running_loss += loss.item() * inputs.size(0)
                 # print('running loss:',running_loss)
-
             epoch_loss = running_loss / len(train_data)
             train_graph.append(epoch_loss)
-            print('\n')
+            # print('\n')
             print('[Epoch] ' + str(epoch),':' + '[Train Loss] ' + str(epoch_loss))
-            print('\n')
-
+            # print('\n')
         if phase == 'val':
-            print('[INFO] Evaluate Phase...')
-            model.eval()   # Set model to evaluate mode
+            # print('[INFO] Evaluate Phase...')
+            model = model.eval()   # Set model to evaluate mode
             for i in range(len(val_data)):
                 sample_val = dataset[val_data[i]]
                 inputs_val = sample_val['image'].to(device)
                 labels_val = sample_val['groundtruth'].to(device)
-
                 outputs_val = model(inputs_val)
                 loss_val = criterion(outputs_val, labels_val)
                 # statistics
                 validate_loss += loss_val.item() * inputs_val.size(0)
-
             val_loss = validate_loss / len(val_data)
             val_graph.append(val_loss)
             print('[Epoch] ' + str(epoch),':' + '[Val Loss] ' + str(val_loss))
-            print('\n')
-        
+            # print('\n')
         if (epoch % 50) == 0:
             torch.save(model.state_dict(), os.path.join(resultDir, savemodelname + '_ep'+str(epoch)+'.pth.tar'))
         # deep copy the model
         if (epoch>10) and (epoch_loss < best_acc):
             best_acc = epoch_loss
             torch.save(model.state_dict(), os.path.join(resultDir, 'best_'+savemodelname+'.pth.tar'))
+
 # plot loss graph
 plt.figure(figsize=(10,5))
 plt.title('Training and Validate Loss')
 plt.plot(train_graph,label="training loss")
-plt.plot(val_graph,label="validate loss")
+#plt.plot(val_graph,label="validate loss")
 plt.xlabel("Epoch")
 plt.ylabel("Loss")
 plt.legend()
 figname = 'Loss Function '+ 'Fold'+ str(foldNum) +'.jpg'
-plt.savefig(figname)
+#plt.savefig(figname)
 plt.show()
 
 # # =======TESTING==============================================================
