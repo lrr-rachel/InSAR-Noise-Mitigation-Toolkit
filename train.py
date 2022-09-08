@@ -32,6 +32,7 @@ parser.add_argument('--unetdepth', type=int, default=5, metavar='N',  help='numb
 parser.add_argument('--numframes', type=int, default=32, metavar='N',  help='batch number (default: 32)')
 parser.add_argument('--maxepoch', type=int, default=200, help='number of epochs to train. default: 200')
 parser.add_argument('--savemodel_epoch', type=int, default=20, help='save model every _ epochs. default: 20 (save model every 20 epochs)')
+parser.add_argument("--preprocess", type=bool, default=False, help='prepare DnCNN data or not')
 parser.add_argument("--num_of_layers", type=int, default=17, help="Number of total layers in DnCNN")
 parser.add_argument("--batchnorm", type=bool, default=False, help='use batch normalization in DnCNN')
 parser.add_argument('--cropsize', type=int, default=224)
@@ -57,6 +58,7 @@ unetdepth = args.unetdepth
 numframes = args.numframes
 maxepoch = args.maxepoch
 savemodel_epoch = args.savemodel_epoch
+preprocess = args.preprocess
 num_of_layers = args.num_of_layers
 batchnorm = args.batchnorm
 cropsize = args.cropsize
@@ -68,7 +70,7 @@ topleft = args.topleft
 resizedata = args.resizedata
 resize_height = args.resize_height
 resize_width = args.resize_width
-foldNum = args.foldNum
+# foldNum = args.foldNum
 
 
 if not os.path.exists(resultDir):
@@ -237,6 +239,9 @@ if network == 'unet':
     model = model.to(device)
     criterion = nn.MSELoss()
 else:
+    if preprocess:
+        prepare_data(data_path=root_restored, patch_size=50, stride=10, aug_times=1)
+        prepare_noisy_data(data_path=root_distorted, patch_size=50, stride=10, aug_times=1)
     train = Dataset(train=True)
     dataset_val = Dataset(train=False)
     loader_train = DataLoader(dataset=train, num_workers=4, batch_size=numframes, shuffle=True)
