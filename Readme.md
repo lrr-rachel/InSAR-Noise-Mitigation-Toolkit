@@ -31,8 +31,10 @@ Note: in this project running 'test.py' for DnCNN will directly output clean ima
 
 ### Training
 * Run ```train.py```
-* Specify the model network, input noisy data directory, input clean data directory, output result directory etc,.
+* Specify the model network (unet/dncnn), input noisy data directory, input clean data directory, output result directory etc,.
 * run ```train.py --help```  to see useful help messages.
+
+* TODO: add detailed explanation
 
 quick example:
 ```
@@ -43,11 +45,10 @@ python train.py
   --resultDir results
   --maxepoch 200
 ```
-* TODO: fix DnCNN 
 
 ### Testing
 * Run ```test.py``` 
-* Specify the model network, input test data directory, output result directory etc,.
+* Specify the model network (unet/dncnn), input test data directory, output result directory etc,.
 * run ```test.py --help```  to see useful help messages.
 
 * TODO: add detailed explanation

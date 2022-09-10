@@ -32,6 +32,7 @@ parser.add_argument('--unetdepth', type=int, default=5, metavar='N',  help='numb
 parser.add_argument('--numframes', type=int, default=32, metavar='N',  help='batch number (default: 32)')
 parser.add_argument('--maxepoch', type=int, default=200, help='number of epochs to train. default: 200')
 parser.add_argument('--savemodel_epoch', type=int, default=20, help='save model every _ epochs. default: 20 (save model every 20 epochs)')
+parser.add_argument("--lr", type=float, default=1e-3, help="Initial learning rate")
 parser.add_argument("--preprocess", type=bool, default=False, help='prepare DnCNN data or not')
 parser.add_argument("--num_of_layers", type=int, default=17, help="Number of total layers in DnCNN")
 parser.add_argument("--batchnorm", type=bool, default=False, help='use batch normalization in DnCNN')
@@ -58,6 +59,7 @@ unetdepth = args.unetdepth
 numframes = args.numframes
 maxepoch = args.maxepoch
 savemodel_epoch = args.savemodel_epoch
+lr = args.lr
 preprocess = args.preprocess
 num_of_layers = args.num_of_layers
 batchnorm = args.batchnorm
@@ -240,8 +242,10 @@ if network == 'unet':
     criterion = nn.MSELoss()
 else:
     if preprocess:
-        prepare_data(data_path=root_restored, patch_size=50, stride=10, aug_times=1)
-        prepare_noisy_data(data_path=root_distorted, patch_size=50, stride=10, aug_times=1)
+        # prepare clean dataset
+        prepare_data(data_path=root_restored, noisy=False, patch_size=50, stride=10)
+        # prepare noisy dataset
+        prepare_data(data_path=root_distorted, noisy=True, patch_size=50, stride=10)
     train = Dataset(train=True)
     dataset_val = Dataset(train=False)
     loader_train = DataLoader(dataset=train, num_workers=4, batch_size=numframes, shuffle=True)
@@ -250,33 +254,18 @@ else:
     net = DnCNN(channels=1, num_of_layers=num_of_layers, bn=False)
     net.apply(weights_init_kaiming)
     criterion = nn.MSELoss(size_average=False)
-    device_ids = [0]
-    model = nn.DataParallel(net, device_ids=device_ids).cuda()
+    model = nn.DataParallel(net, device_ids=[0]).cuda()
     criterion.cuda()
 
 # Observe that all parameters are being optimized
-optimizer = optim.Adam(model.parameters(), lr=0.0001)
+optimizer = optim.Adam(model.parameters(), lr=lr)
 
 # Decay LR by a factor of 0.1 every 7 epochs
 # exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
 
-# 5-fold cross validation
-folds = KFold(n_splits=5, shuffle=True, random_state=1)
-image_path_list = os.listdir(root_distorted)
-label_list = os.listdir(root_restored)
-
-train_data = []
-val_data = []
-# manually set the fold number in args
-# for 10,000 data: each fold train with 8000, val with 2000 data
-foldNum = 0
-for fold_i, (train_index, val_index) in enumerate(folds.split(image_path_list)):
-    if fold_i == foldNum: 
-        train_data = train_index
-        val_data = val_index
+train_data, val_data = split_trainval(root_distorted)
 
 # =====================================================================
-print('---------------- Fold ', foldNum, ' ----------------')
 print("[INFO] Training...")
 num_epochs=maxepoch
 since = time.time()
@@ -297,7 +286,6 @@ if network == 'unet':
             validate_loss = 0.0
             validate_corrects = 0
             if phase == 'train':
-                # print('[INFO] Training Phase...')
                 model = model.train()  # Set model to training mode
                 # Iterate over train data.
                 for i in random.sample(range(len(train_data)),len(train_data)):

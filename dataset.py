@@ -8,6 +8,29 @@ import cv2
 import glob
 import torch.utils.data as udata
 from utils import data_augmentation
+from sklearn.model_selection import KFold
+import random
+
+
+def split_trainval(noisy_path):
+    '''
+    Simply splitting data to train and val in 4:1 (if harcode foldNum = 0)
+    for 10,000 data: each fold train with 8000, val with 2000 data
+    '''
+    # 5-fold cross validation
+    folds = KFold(n_splits=5, shuffle=True, random_state=1)
+    noisy_list = os.listdir(noisy_path)
+    # same index for both noisy and clean data
+    trainindx_N = []
+    valindx_N = []
+    # manually set the fold number  
+    foldNum = 0
+    for fold_i, (train_index, val_index) in enumerate(folds.split(noisy_list)):
+        if fold_i == foldNum: 
+            trainindx_N  = train_index
+            valindx_N  = val_index
+
+    return trainindx_N, valindx_N
 
 def normalize(data):
     return data/255.
@@ -27,43 +50,45 @@ def Im2Patch(img, win, stride=1):
             k = k + 1
     return Y.reshape([endc, win, win, TotalPatNum])
 
-def prepare_data(data_path, patch_size, stride, aug_times=1):
-    # train
-    print('process training data')
-    # scales = [1, 0.9, 0.8, 0.7]
-    files = glob.glob(os.path.join(data_path, 'D_png', '*.png'))
+def prepare_data(data_path, noisy, patch_size, stride):
+    trainindx, valindx = split_trainval(data_path)
+    files = glob.glob(os.path.join(data_path, '*.png'))
     files.sort()
-    h5f = h5py.File('train.h5', 'w')
+    if noisy == False:
+        print('process CLEAN training data')
+        h5f = h5py.File('train.h5', 'w')
+    else: 
+        print('process NOISY training data')
+        h5f = h5py.File('train_noisy.h5', 'w')
     train_num = 0
-    for i in range(len(files)):
-        img = cv2.imread(files[i])
+    for i in range(len(trainindx)):
+        img = cv2.imread(files[trainindx[i]])
         h, w, c = img.shape
         Img = cv2.resize(img, (int(h*1), int(w*1)), interpolation=cv2.INTER_CUBIC)
         Img = np.expand_dims(Img[:,:,0].copy(), 0)
         Img = np.float32(normalize(Img))
         patches = Im2Patch(Img, win=patch_size, stride=stride)
-        print("file: %s scale %.1f # samples: %d" % (files[i], 1, patches.shape[3]))
+        print("file: %s scale %.1f # samples: %d" % (files[trainindx[i]], 1, patches.shape[3]))
         for n in range(patches.shape[3]):
             data = patches[:,:,:,n].copy()
             h5f.create_dataset(str(train_num), data=data)
             train_num += 1
-            # for m in range(aug_times-1):
-            #     data_aug = data_augmentation(data, np.random.randint(1,8))
-            #     h5f.create_dataset(str(train_num)+"_aug_%d" % (m+1), data=data_aug)
-            #     train_num += 1
 
     h5f.close()
     # val
-    print('\nprocess validation data')
     files.clear()
-    # files = glob.glob(os.path.join(data_path, 'Set12', '*.png'))
-    files = glob.glob(os.path.join(data_path, 'val_D','*.png'))
+    files = glob.glob(os.path.join(data_path, '*.png'))
     files.sort()
-    h5f = h5py.File('val.h5', 'w')
+    if noisy == False:
+        print('\nprocess CLEAN validation data')
+        h5f = h5py.File('val.h5', 'w')
+    else:
+        print('\nprocess NOISY validation data')
+        h5f = h5py.File('val_noisy.h5', 'w')
     val_num = 0
-    for i in range(len(files)):
-        print("file: %s" % files[i])
-        img = cv2.imread(files[i])
+    for i in range(len(valindx)):
+        print("file: %s" % files[valindx[i]])
+        img = cv2.imread(files[valindx[i]])
         img = np.expand_dims(img[:,:,0], 0)
         img = np.float32(normalize(img))
         h5f.create_dataset(str(val_num), data=img)
@@ -71,52 +96,6 @@ def prepare_data(data_path, patch_size, stride, aug_times=1):
     h5f.close()
     print('training set, # samples %d\n' % train_num)
     print('val set, # samples %d\n' % val_num)
-
-def prepare_noisy_data(data_path, patch_size, stride, aug_times=1):
-    # train
-    print('process noisy training data')
-    # scales = [1, 0.9, 0.8, 0.7]
-    files = glob.glob(os.path.join(data_path, 'DST_png', '*.png'))
-    files.sort()
-    h5f = h5py.File('train_noisy.h5', 'w')
-    train_num = 0
-    for i in range(len(files)):
-        img = cv2.imread(files[i])
-        h, w, c = img.shape
-        Img = cv2.resize(img, (int(h*1), int(w*1)), interpolation=cv2.INTER_CUBIC)
-        Img = np.expand_dims(Img[:,:,0].copy(), 0)
-        Img = np.float32(normalize(Img))
-        patches = Im2Patch(Img, win=patch_size, stride=stride)
-        # print("file: %s scale %.1f # samples: %d" % (files[i], 1, patches.shape[3]*aug_times))
-        print("file: %s scale %.1f # samples: %d" % (files[i], 1, patches.shape[3]))
-        for n in range(patches.shape[3]):
-            data = patches[:,:,:,n].copy()
-            h5f.create_dataset(str(train_num), data=data)
-            train_num += 1
-            # for m in range(aug_times-1):
-            #     data_aug = data_augmentation(data, np.random.randint(1,8))
-            #     h5f.create_dataset(str(train_num)+"_aug_%d" % (m+1), data=data_aug)
-            #     train_num += 1
-
-    h5f.close()
-    # val
-    print('\nprocess noisy validation data')
-    files.clear()
-    # files = glob.glob(os.path.join(data_path, 'Set12', '*.png'))
-    files = glob.glob(os.path.join(data_path, 'val_DST','*.png'))
-    files.sort()
-    h5f = h5py.File('val_noisy.h5', 'w')
-    val_num = 0
-    for i in range(len(files)):
-        print("file: %s" % files[i])
-        img = cv2.imread(files[i])
-        img = np.expand_dims(img[:,:,0], 0)
-        img = np.float32(normalize(img))
-        h5f.create_dataset(str(val_num), data=img)
-        val_num += 1
-    h5f.close()
-    print('training noisy set, # samples %d\n' % train_num)
-    print('val noisy set, # samples %d\n' % val_num)
 
 class Dataset(udata.Dataset):
     def __init__(self, train=True):
