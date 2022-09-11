@@ -40,12 +40,12 @@ parser.add_argument('--cropsize', type=int, default=224)
 parser.add_argument('--savemodelname', type=str, default='model')
 parser.add_argument('--NoNorm', action='store_false', help='Run test only')
 parser.add_argument('--deform', action='store_true', help='Run test only')
-parser.add_argument('--retrain', action='store_true')
+parser.add_argument('--retrain', action='store_true', help='Retrain')
 parser.add_argument('--topleft', action='store_true', help='crop using top left')
 parser.add_argument('--resizedata',default='false', help='resize input')
 parser.add_argument('--resize_height',type=int,default=256,help='resize height')
 parser.add_argument('--resize_width',type=int,default=256, help='resize width')
-# parser.add_argument('--foldNum', type=int, default=0, help='5-f cross validation fold number: 0-4')
+# parser.add_argument('--foldNum', type=int, default=0, help='manually set 5-f cross validation fold number: 0-4')
 
 
 
@@ -221,6 +221,8 @@ if resizedata == 'true':
     print('[INFO] resize clean input...')
     resizeimage(root_restored,resize_width,resize_height)
 
+
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # data loader
 print("[INFO] Loading Data")
 if network == 'unet':
@@ -234,7 +236,6 @@ if network == 'unet':
                                         transform=transforms.Compose([RandomCrop(cropsize, topleft=topleft),RandomFlip(),ToTensor(network=network)]))
 
     print("[INFO] Generating UNet")
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = UnetGenerator(input_nc=1, output_nc=1, num_downs=unetdepth, deformable=deform, norm_layer=NoNorm)
     if retrain:
         model.load_state_dict(torch.load(os.path.join(resultDir,'best_'+ savemodelname+'.pth.tar'),map_location=device))
@@ -255,6 +256,8 @@ else:
     net.apply(weights_init_kaiming)
     criterion = nn.MSELoss(size_average=False)
     model = nn.DataParallel(net, device_ids=[0]).cuda()
+    if retrain:
+        model.load_state_dict(torch.load(os.path.join(resultDir,'best_'+ savemodelname+'.pth.tar'),map_location=device))
     criterion.cuda()
 
 # Observe that all parameters are being optimized
@@ -276,18 +279,19 @@ best_acc = 100000000.0
 train_graph = []
 val_graph = []
 
-if network == 'unet':
-    for epoch in range(num_epochs+1):
-        print('Epoch {}/{}'.format(epoch, num_epochs - 1))
-        # Each epoch has a training and validation phase
-        for phase in ['train','val']:
-            running_loss = 0.0
-            running_corrects = 0
-            validate_loss = 0.0
-            validate_corrects = 0
-            if phase == 'train':
-                model = model.train()  # Set model to training mode
-                # Iterate over train data.
+for epoch in range(num_epochs+1):
+    print('Epoch {}/{}'.format(epoch, num_epochs - 1))
+    dncnn_loss = 0.0
+    # Each epoch has a training and validation phase
+    for phase in ['train','val']:
+        running_loss = 0.0
+        running_corrects = 0
+        validate_loss = 0.0
+        validate_corrects = 0
+        if phase == 'train':
+            model = model.train()  # Set model to training mode
+            # Iterate over train data.
+            if network == 'unet':
                 for i in random.sample(range(len(train_data)),len(train_data)):
                     sample = unetdataset[train_data[i]]
                     inputs = sample['image'].to(device)
@@ -308,13 +312,31 @@ if network == 'unet':
                     if (i % 1000) == 0:
                         print(str(i) + ' running loss:' + str(running_loss))
                 epoch_loss = running_loss / len(train_data) / numframes
-                train_graph.append(epoch_loss)
-                # print('\n')
-                print('[Epoch] ' + str(epoch),':' + '[Train Loss] ' + str(epoch_loss))
-                # print('\n')
-            if phase == 'val':
-                # print('[INFO] Evaluate Phase...')
-                model = model.eval()   # Set model to evaluate mode
+            else:
+                for i, (data,noisy) in enumerate(loader_train, 0):
+                    # training dncnn
+                    model.train()
+                    model.zero_grad()
+                    optimizer.zero_grad()
+                    img_train = data #clean
+                    img_noisy = noisy #noisy
+                    imgn_train = img_noisy
+                    with torch.no_grad():
+                        img_train, imgn_train = Variable(img_train.cuda()), Variable(imgn_train.cuda())
+                        out_train = model(imgn_train)
+                        loss = criterion(out_train, imgn_train-img_train) / (imgn_train.size()[0]*2)
+                        loss.requires_grad_(True)
+                        loss.backward()
+                        optimizer.step()
+                    dncnn_loss += loss.item()
+                    
+                epoch_loss = dncnn_loss/len(loader_train)/numframes
+            train_graph.append(epoch_loss)
+            print('[Epoch] ' + str(epoch),':' + '[Train Loss] ' + str(epoch_loss))
+
+        if phase == 'val':
+            model = model.eval()   # Set model to evaluate mode
+            if network == 'unet':
                 for i in range(len(val_data)):
                     sample_val = unetdataset[val_data[i]]
                     inputs_val = sample_val['image'].to(device)
@@ -326,55 +348,28 @@ if network == 'unet':
                 val_loss = validate_loss / len(val_data)
                 val_graph.append(val_loss)
                 print('[Epoch] ' + str(epoch),':' + '[Val Loss] ' + str(val_loss))
-            # save model
-            if (epoch % savemodel_epoch) == 0:
-                torch.save(model.state_dict(), os.path.join(resultDir, savemodelname + '_ep'+str(epoch)+'.pth.tar'))
+            else: 
+                # validate
+                for k, (data,noisy) in enumerate(dataset_val, 0):
+                    img_val = torch.unsqueeze(data, 0)
+                    img_valnoisy = torch.unsqueeze(noisy,0)
+                    imgn_val = img_valnoisy
+                    with torch.no_grad():
+                        img_val, imgn_val = Variable(img_val.cuda()), Variable(imgn_val.cuda())
+                        out_val = torch.clamp(imgn_val-model(imgn_val), 0., 1.)
+                        loss_val = criterion(out_val, imgn_val-img_val) / (imgn_val.size()[0]*2)
+                        loss_val.requires_grad_(True)
+        # save model
+        if (epoch % savemodel_epoch) == 0:
+            torch.save(model.state_dict(), os.path.join(resultDir, savemodelname + '_ep'+str(epoch)+'.pth.tar'))
 
-            # deep copy the model
+        # deep copy the model
+        if network == 'unet':
             if (epoch>1) and (epoch_loss < best_acc):
                 best_acc = epoch_loss
                 torch.save(model.state_dict(), os.path.join(resultDir, 'best_'+savemodelname+'.pth.tar'))
-else:
-    for epoch in range(num_epochs+1):
-        loss_all = 0.0
-        # train
-        for i, (data,noisy) in enumerate(loader_train, 0):
-            # training step
-            model.train()
-            model.zero_grad()
-            optimizer.zero_grad()
-            img_train = data #clean
-            img_noisy = noisy #noisy
-            imgn_train = img_noisy
-            img_train, imgn_train = Variable(img_train.cuda()), Variable(imgn_train.cuda())
-            out_train = model(imgn_train)
-            loss = criterion(out_train, imgn_train-img_train) / (imgn_train.size()[0]*2)
-            loss.backward()
-            optimizer.step()
-            # results
-            model.eval()
-            out_train = torch.clamp(imgn_train-model(imgn_train), 0., 1.)
-            print("[epoch %d][%d/%d] loss: %.4f" %
-                (epoch+1, i+1, len(loader_train), loss.item()))
-            loss_all += loss.item()
-        ## the end of each epoch
-        train_graph.append(loss_all/len(loader_train))
-        model.eval()
-        # validate
-        for k, (data,noisy) in enumerate(dataset_val, 0):
-            img_val = torch.unsqueeze(data, 0)
-            img_valnoisy = torch.unsqueeze(noisy,0)
-            imgn_val = img_valnoisy
-            img_val, imgn_val = Variable(img_val.cuda(), volatile=True), Variable(imgn_val.cuda(), volatile=True)
-            out_val = torch.clamp(imgn_val-model(imgn_val), 0., 1.)
-        # log the images
-        out_train = torch.clamp(imgn_train-model(imgn_train), 0., 1.)
-        # save model
-        if (epoch % 20) == 0:
-            torch.save(model.state_dict(), os.path.join(resultDir, 'ep'+str(epoch)+'.pth.tar'))
-        if (epoch>1) and ((loss_all/len(loader_train)) < best_acc):
-            best_acc = (loss_all/len(loader_train))
-            torch.save(model.state_dict(), os.path.join(resultDir))
+        else:
+            torch.save(model.state_dict(), os.path.join(resultDir, 'best_'+savemodelname+'.pth.tar'))
 
 # plot loss and val graph
 plt.figure(figsize=(10,5))
