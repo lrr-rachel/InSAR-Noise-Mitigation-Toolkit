@@ -79,3 +79,5 @@ python test.py --network unet --root_distorted ./test_dataset/ --resultDir unetr
 ```
 python test.py --network dncnn --root_distorted ./test_dataset/ --resultDir dncnnresults
 ```
+
+for any queries please contact gf19473@bristol.ac.uk

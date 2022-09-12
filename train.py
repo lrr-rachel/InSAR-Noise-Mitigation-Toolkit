@@ -36,6 +36,7 @@ parser.add_argument("--lr", type=float, default=1e-3, help="Initial learning rat
 parser.add_argument("--preprocess", type=bool, default=False, help='prepare DnCNN data or not')
 parser.add_argument("--num_of_layers", type=int, default=17, help="Number of total layers in DnCNN")
 parser.add_argument("--batchnorm", type=bool, default=False, help='use batch normalization in DnCNN')
+parser.add_argument("--lossgraph", type=bool, default=False, help='plot loss graph')
 parser.add_argument('--cropsize', type=int, default=224)
 parser.add_argument('--savemodelname', type=str, default='model')
 parser.add_argument('--NoNorm', action='store_false', help='Run test only')
@@ -63,6 +64,7 @@ lr = args.lr
 preprocess = args.preprocess
 num_of_layers = args.num_of_layers
 batchnorm = args.batchnorm
+lossgraph = args.lossgraph
 cropsize = args.cropsize
 savemodelname = args.savemodelname
 NoNorm = args.NoNorm
@@ -371,17 +373,18 @@ for epoch in range(num_epochs+1):
         else:
             torch.save(model.state_dict(), os.path.join(resultDir, 'best_'+savemodelname+'.pth.tar'))
 
-# plot loss and val graph
-plt.figure(figsize=(10,5))
-plt.title('Training and Validate Loss')
-plt.plot(train_graph,label="training loss")
-plt.plot(val_graph,label="validate loss")
-plt.xlabel("Epoch")
-plt.ylabel("Loss")
-plt.legend()
-figname = os.path.join(resultDir, network + ' Loss and Val Graph.jpg')
-plt.savefig(figname)
-#plt.show()
+if lossgraph:
+    # plot loss and val graph
+    plt.figure(figsize=(10,5))
+    plt.title('Training and Validate Loss')
+    plt.plot(train_graph,label="training loss")
+    plt.plot(val_graph,label="validate loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.legend()
+    figname = os.path.join(resultDir, network + ' Loss and Val Graph.jpg')
+    plt.savefig(figname)
+    #plt.show()
 
 
 
